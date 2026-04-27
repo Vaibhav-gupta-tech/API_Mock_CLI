@@ -1,0 +1,136 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Sample API", "version": "1.0.0" },
+  "paths": {
+    "/users": {
+      "get": {
+        "summary": "List users",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["id", "email", "first_name", "status"],
+                    "properties": {
+                      "id":         { "type": "string", "format": "uuid" },
+                      "email":      { "type": "string", "format": "email" },
+                      "first_name": { "type": "string" },
+                      "last_name":  { "type": "string" },
+                      "status":     { "type": "string", "enum": ["active", "inactive", "pending"] },
+                      "created_at": { "type": "string", "format": "date-time" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string" },
+                  "name":  { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "email"],
+                  "properties": {
+                    "id":    { "type": "string", "format": "uuid" },
+                    "email": { "type": "string", "format": "email" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{id}": {
+      "get": {
+        "summary": "Get user by ID",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "email", "first_name"],
+                  "properties": {
+                    "id":         { "type": "string", "format": "uuid" },
+                    "email":      { "type": "string", "format": "email" },
+                    "first_name": { "type": "string" },
+                    "phone":      { "type": "string" },
+                    "country":    { "type": "string" },
+                    "price":      { "type": "number" },
+                    "color":      { "type": "string" },
+                    "ip_address": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete user",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "204": { "description": "No Content" }
+        }
+      }
+    },
+    "/products/{productId}/reviews/{reviewId}": {
+      "get": {
+        "summary": "Get a review (nested path params)",
+        "parameters": [
+          { "name": "productId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "reviewId",  "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "description", "status"],
+                  "properties": {
+                    "id":          { "type": "string", "format": "uuid" },
+                    "description": { "type": "string" },
+                    "status":      { "type": "string", "enum": ["approved", "pending", "rejected"] },
+                    "created_at":  { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
