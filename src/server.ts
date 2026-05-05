@@ -110,12 +110,16 @@ export async function startServer(opts: ServeOptions): Promise<void> {
         : globalLatency;
       await sleep(latencyCfg ? sampleLatency(latencyCfg) : 0);
 
-      const { body, statusCode } = generateResponseBody(
-        matched.route.operation,
-        opts.mode,
-        opts.includeOptional,
-        opts.seed,
-      );
+      const { body, statusCode } = await generateResponseBody({
+        route: matched.route,
+        mode: opts.mode,
+        seed: opts.seed,
+        includeOptional: opts.includeOptional,
+        pathParams: matched.pathParams,
+        queryParams: req.query as Record<string, string>,
+        ai: opts.ai,
+        spec: parsedSpec,
+      });
 
       logRequest(
         { method: req.method, path: req.path, status: statusCode, mode: opts.mode, latencyMs: Date.now() - startTime, matched: true },

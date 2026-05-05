@@ -15,8 +15,9 @@ import { OpenAPIV3 } from 'openapi-types';
  *
  *  empty  — type-correct zero values (deterministic, great for snapshot tests)
  *  random — schema-valid but varied values (supports --seed for reproducibility)
+ *  ai     — LLM-powered coherent responses (requires API key)
  */
-export type GenerationMode = 'empty' | 'random';
+export type GenerationMode = 'empty' | 'random' | 'ai';
 
 // ─── Latency config ───────────────────────────────────────────────────────────
 
@@ -42,6 +43,31 @@ export interface LatencyConfig {
   p95?: number;
   /** Target p99 latency in ms (used only when logNormal is true). */
   p99?: number;
+}
+
+// ─── AI generation options ────────────────────────────────────────────────────
+
+/**
+ * Configuration for AI-powered data generation (--mode ai).
+ * Uses openRouter API for LLM access (free tier available for testing).
+ */
+export interface AIOptions {
+  /** Whether AI mode is enabled. */
+  enabled: boolean;
+  /** API key for openRouter. Defaults to process.env.OPENROUTER_API_KEY. */
+  apiKey?: string;
+  /** LLM model to use (e.g., "meta-llama/llama-2-70b-chat"). Defaults to a free model. */
+  model?: string;
+  /** Temperature for LLM sampling (0-2). Default: 0.7 (creative but stable). */
+  temperature?: number;
+  /** Response cache TTL in seconds. Default: 300. Set via AI_CACHE_TTL env var only. */
+  cacheTtl?: number;
+  /** Fallback mode if LLM fails or times out. Default: 'random'. */
+  fallback?: GenerationMode;
+  /** Request timeout in milliseconds. Default: 10000. Set via AI_TIMEOUT env var only. */
+  timeout?: number;
+  /** Maximum retries on validation failure. Default: 3. Set via AI_MAX_RETRIES env var only. */
+  maxRetries?: number;
 }
 
 // ─── Parsed CLI options ───────────────────────────────────────────────────────
@@ -76,6 +102,8 @@ export interface ServeOptions {
   from?: string;
   /** Record proxied responses to this HAR file path. */
   record?: string;
+  /** AI generation options (used when mode is 'ai'). */
+  ai?: AIOptions;
 }
 
 /**
@@ -146,6 +174,10 @@ export interface ResponseContext {
   pathParams: Record<string, string>;
   /** Query string parameters. */
   queryParams: Record<string, string>;
+  /** AI options (when mode is 'ai'). */
+  ai?: AIOptions;
+  /** Parsed spec for AI context. */
+  spec?: ParsedSpec;
 }
 
 // ─── Utility ─────────────────────────────────────────────────────────────────
