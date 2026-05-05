@@ -25,7 +25,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { OpenAPIV3 } from 'openapi-types';
-import { GenerationMode, JsonValue } from './types';
+import { GenerationMode, JsonValue, ResponseContext } from './types';
+import { createAIClient } from './aiClient';
+import { getAICache } from './cache';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -495,16 +497,15 @@ function generateAllOf(
  *
  * @returns { body, statusCode } — the generated body and the HTTP status code.
  */
-export function generateResponseBody(
-  operation: import('openapi-types').OpenAPIV3.OperationObject,
-  mode: GenerationMode,
-  includeOptional: boolean,
-  seed?: number,
-): { body: JsonValue; statusCode: number } {
+export async function generateResponseBody(
+  context: ResponseContext,
+): Promise<{ body: JsonValue; statusCode: number }> {
+  const { route, mode, includeOptional, seed, ai, spec } = context;
+
   // Set the seed for this generation pass
   setSeed(seed);
 
-  const responses = operation.responses as Record<string, OpenAPIV3.ResponseObject>;
+  const responses = route.operation.responses as Record<string, OpenAPIV3.ResponseObject>;
   if (!responses) return { body: {}, statusCode: 200 };
 
   // Preference order for picking the response definition
@@ -539,6 +540,133 @@ export function generateResponseBody(
 
   if (!schema) return { body: {}, statusCode };
 
-  const body = generateValue(schema, mode, includeOptional, '', 0);
+  // Handle AI mode
+  if (mode === 'ai' && ai && spec) {
+    const aiClient = createAIClient(ai);
+    const cache = getAICache(ai);
+
+    if (aiClient) {
+      const cachedResponse = cache?.get(route.path, route.method, context.pathParams, context.queryParams);
+      if (cachedResponse) {
+        try {
+          const parsed = JSON.parse(cachedResponse);
+          console.log(`[RESPONSE SOURCE] 📦 Cached AI response - ${route.method} ${route.path}`);
+          return { body: parsed, statusCode };
+        } catch (e) {
+          // Invalid cached data, ignore
+        }
+      }
+
+      const prompt = buildAIPrompt(route, schema, spec, context);
+      const maxRetries = ai.maxRetries ?? 3;
+      let lastError: Error | null = null;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+        console.log(`[RESPONSE SOURCE] 🤖 Live AI call - ${route.method} ${route.path} (attempt ${attempt}/${maxRetries})`);
+
+        try {
+          const aiResponse = await aiClient.generate({ prompt, temperature: ai.temperature }, ai);
+          let parsedBody: JsonValue;
+
+          try {
+            parsedBody = JSON.parse(aiResponse.text);
+          } catch (e) {
+            throw new Error('AI returned invalid JSON');
+          }
+
+          if (schema.type === 'object' && (parsedBody === null || typeof parsedBody !== 'object' || Array.isArray(parsedBody))) {
+            throw new Error('AI response does not match schema type');
+          }
+
+          if (schema.type === 'array' && !Array.isArray(parsedBody)) {
+            throw new Error('AI response does not match schema type');
+          }
+
+          cache?.set(route.path, route.method, context.pathParams, context.queryParams, aiResponse.text);
+          console.log(`[RESPONSE SOURCE] ✅ AI response accepted - ${route.method} ${route.path} (attempt ${attempt}/${maxRetries})`);
+          return { body: parsedBody, statusCode };
+        } catch (error) {
+          lastError = error as Error;
+          const errorMsg = lastError.message.toLowerCase();
+
+          // Check for specific error types that should trigger fallback
+          if (errorMsg.includes('invalid api key') || errorMsg.includes('authentication failed')) {
+            console.warn(`[AI FAILURE] Invalid API key detected. Falling back to ${ai.fallback || 'random'} mode.`);
+            break; // Don't retry on auth failures
+          } else if (errorMsg.includes('rate limit') || errorMsg.includes('daily limit') || errorMsg.includes('insufficient credits')) {
+            console.warn(`[AI FAILURE] API limit reached. Falling back to ${ai.fallback || 'random'} mode.`);
+            break; // Don't retry on limit issues
+          } else {
+            console.warn(`[AI RETRY] Attempt ${attempt}/${maxRetries} failed for ${route.method} ${route.path}: ${lastError.message}`);
+            if (attempt === maxRetries) {
+              break;
+            }
+          }
+        }
+      }
+
+      console.warn(`[AI FAILURE] All ${maxRetries} retry attempts failed for ${route.method} ${route.path}. Falling back to ${ai.fallback || 'random'} mode.`);
+    } else {
+      // No API key provided, fall back to random mode
+      console.warn(`[AI FAILURE] No API key available. Falling back to ${ai.fallback || 'random'} mode.`);
+    }
+  }
+
+  const fallbackMode: GenerationMode = mode === 'ai' ? (ai?.fallback || 'random') : mode;
+  console.log(`[RESPONSE SOURCE] 🎲 ${fallbackMode === 'empty' ? 'Empty' : 'Random'} mode - ${route.path}`);
+  const body = generateValue(schema, fallbackMode, includeOptional, '', seed);
   return { body, statusCode };
+}
+
+/**
+ * Build a prompt for the AI to generate a coherent mock response.
+ */
+function buildAIPrompt(
+  route: import('./types').ParsedRoute,
+  schema: OpenAPIV3.SchemaObject,
+  spec: import('./types').ParsedSpec,
+  context: ResponseContext
+): string {
+  const { pathParams, queryParams } = context;
+
+  let prompt = `Generate a JSON response for the following API endpoint:\n\n`;
+  prompt += `Method: ${route.method}\n`;
+  prompt += `Path: ${route.path}\n`;
+
+  if (route.operation.summary) {
+    prompt += `Summary: ${route.operation.summary}\n`;
+  }
+  if (route.operation.description) {
+    prompt += `Description: ${route.operation.description}\n`;
+  }
+
+  if (Object.keys(pathParams).length > 0) {
+    prompt += `Path Parameters: ${JSON.stringify(pathParams)}\n`;
+  }
+  if (Object.keys(queryParams).length > 0) {
+    prompt += `Query Parameters: ${JSON.stringify(queryParams)}\n`;
+  }
+
+  prompt += `\nAPI Context: This is a ${spec.document.info?.title || 'REST API'} (${spec.document.info?.version || 'v1'})\n`;
+  if (spec.document.info?.description) {
+    prompt += `Description: ${spec.document.info.description}\n`;
+  }
+
+  if (Object.keys(pathParams).length > 0) {
+    prompt += `\nContext: The above path parameters identify the specific resource being requested. Generate DIFFERENT and UNIQUE responses for different parameter values. Each parameter combination should result in distinct data.\n`;
+  }
+
+  prompt += `\nResponse Schema (OpenAPI 3.0):\n${JSON.stringify(schema, null, 2)}\n\n`;
+
+  prompt += `Instructions:\n`;
+  prompt += `- Generate a valid JSON object that matches the schema\n`;
+  prompt += `- Make the data realistic and coherent\n`;
+  if (Object.keys(pathParams).length > 0) {
+    prompt += `- Use the path parameters provided above to customize the response (e.g., if 'id' is provided, use it or reference it in the response)\n`;
+  }
+  prompt += `- For objects, ensure related fields are consistent (e.g., created_at before updated_at)\n`;
+  prompt += `- Use appropriate data types and formats\n`;
+  prompt += `- Return only the JSON, no additional text\n`;
+
+  return prompt;
 }

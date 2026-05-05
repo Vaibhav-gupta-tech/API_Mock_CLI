@@ -8,9 +8,10 @@ npx apimock serve --spec ./api.json --mode random --latency realistic
 
 ---
 
-## Features (Phase 1)
+## Features
 
 - **Empty mode** — deterministic zero-values, identical on every request (great for snapshot tests)
+- **AI mode** — Phase 2 preview: realistic responses generated via OpenRouter, with cache, retry, and random fallback support
 - **Random mode** — schema-valid varied data with semantic field inference (`email` → real email, `price` → monetary value, etc.)
 - **Latency simulation** — fixed, range, log-normal distribution, or presets (`realistic`, `slow-3g`, `db-heavy`)
 - **Spec validation** — validate OpenAPI specs with line-level error messages before starting the server
@@ -47,6 +48,9 @@ node dist/cli.js validate --spec ./api.json
 # Start mock server — empty defaults
 node dist/cli.js serve --spec ./api.json
 
+# AI data generation with OpenRouter (Phase 2 preview)
+node dist/cli.js serve --spec ./api.json --mode ai
+
 # Random data + realistic latency
 node dist/cli.js serve --spec ./api.json --mode random --latency realistic
 
@@ -58,6 +62,56 @@ node dist/cli.js serve --from https://api.example.com --record ./session.har
 
 # Replay recorded session offline
 node dist/cli.js replay --session ./session.har
+```
+
+## Environment Variables
+Create a `.env` file with values like:
+
+```env
+OPENROUTER_API_KEY=sk-or-v1-YOUR-KEY-HERE
+AI_CACHE_TTL=300
+AI_MAX_RETRIES=3
+AI_TIMEOUT=10000
+```
+
+**Note:** `AI_CACHE_TTL`, `AI_MAX_RETRIES`, and `AI_TIMEOUT` are controlled by environment variables only. CLI flags for these settings are ignored.
+
+Then start the server normally:
+
+```bash
+node dist/cli.js serve --spec ./api.json --mode ai
+```
+
+## AI Mode
+
+AI mode uses OpenRouter API to generate realistic mock data. Requires an API key.
+
+### Setup
+
+```bash
+# Set your API key
+echo "OPENROUTER_API_KEY=sk-or-v1-your-key-here" > .env
+
+# Start AI mode
+node dist/cli.js serve --spec ./api.json --mode ai
+```
+
+### Fallback Behavior
+
+AI mode automatically falls back to random mode with warnings in these cases:
+
+- **No API key**: Shows startup warning and falls back per request
+- **Invalid API key**: Detects authentication failure and falls back immediately
+- **Rate limits**: Detects daily limits/credits exhausted and falls back
+- **Network/API errors**: Retries up to 3 times, then falls back
+
+Debug-only helper output has been removed from this version; you will only see standard warning and response-source logs.
+
+**Example warnings:**
+```
+⚠️  Warning: AI mode requested but no API key found. Will fall back to random mode.
+[AI FAILURE] Invalid API key detected. Falling back to random mode.
+[AI FAILURE] API limit reached. Falling back to random mode.
 ```
 
 ---
@@ -222,7 +276,7 @@ src/
 | Phase | Status | Features |
 |-------|--------|---------|
 | Phase 1 | ✅ Done | Empty/random generation, latency, proxy, HAR, hot-reload |
-| Phase 2 | 🔜 Planned | AI-powered data, YAML specs, chaos/error injection |
+| Phase 2 | 🔜 In progress | AI-backed response generation (OpenRouter preview), YAML spec support, chaos/error injection |
 | Phase 3 | 🔜 Planned | Stateful CRUD sessions, seed data, reset endpoints |
 
 ---
